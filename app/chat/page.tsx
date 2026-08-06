@@ -1,28 +1,36 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
-import ChatInterface from "../components/ChatInterface";
+import { Calendar, ReceiptText } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import ChatInterface, { UiMessage } from "../components/ChatInterface";
 import ConversationSidebar from "../components/ConversationSidebar";
-
-interface Message {
-	role: "user" | "assistant";
-	content: string;
-}
+import {
+	loadConversations,
+	loadCurrentId,
+	saveConversations,
+	saveCurrentId,
+} from "../lib/conversationStore";
+import { ensureUser } from "../lib/session";
 
 interface Conversation {
 	id: string;
 	title: string;
-	messages: Message[];
+	messages: UiMessage[];
 }
 
-export default function Home() {
+export default function ChatPage() {
 	const [darkMode, setDarkMode] = useState(true);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [conversations, setConversations] = useState<Conversation[]>([]);
 	const [currentConversationId, setCurrentConversationId] = useState<
 		string | null
 	>(null);
+	const [userId, setUserId] = useState<number | null>(null);
+	const [userName, setUserName] = useState<string | null>(null);
+	const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+	const hydrated = useRef(false);
 
 	useEffect(() => {
 		if (darkMode) {
@@ -32,26 +40,67 @@ export default function Home() {
 		}
 	}, [darkMode]);
 
-	const addMessageToConversation = (message: Message) => {
-		setConversations((prevConversations) => {
-			if (currentConversationId) {
-				return prevConversations.map((conv) =>
-					conv.id === currentConversationId
-						? { ...conv, messages: [...conv.messages, message] }
-						: conv,
+	useEffect(() => {
+		let cancelled = false;
+		(async () => {
+			try {
+				const u = await ensureUser();
+				if (!cancelled) {
+					setUserId(u.id);
+					setUserName(u.name);
+				}
+			} catch (err) {
+				if (!cancelled) {
+					setBootstrapError(
+						err instanceof Error ? err.message : "Failed to reach backend",
+					);
+				}
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
+		const stored = loadConversations();
+		if (stored.length) setConversations(stored);
+		const currentId = loadCurrentId();
+		if (currentId) setCurrentConversationId(currentId);
+		hydrated.current = true;
+	}, []);
+
+	useEffect(() => {
+		if (!hydrated.current) return;
+		saveConversations(conversations);
+	}, [conversations]);
+	useEffect(() => {
+		if (!hydrated.current) return;
+		saveCurrentId(currentConversationId);
+	}, [currentConversationId]);
+
+	const appendMessage = (convId: string | null, message: UiMessage): string => {
+		const targetId = convId ?? Date.now().toString();
+		setConversations((prev) => {
+			const existing = convId ? prev.find((c) => c.id === convId) : undefined;
+			if (existing) {
+				return prev.map((c) =>
+					c.id === convId ? { ...c, messages: [...c.messages, message] } : c,
 				);
-			} else {
-				const newConversation: Conversation = {
-					id: Date.now().toString(),
+			}
+			return [
+				...prev,
+				{
+					id: targetId,
 					title:
 						message.content.slice(0, 30) +
 						(message.content.length > 30 ? "..." : ""),
 					messages: [message],
-				};
-				setCurrentConversationId(newConversation.id);
-				return [...prevConversations, newConversation];
-			}
+				},
+			];
 		});
+		if (!convId) setCurrentConversationId(targetId);
+		return targetId;
 	};
 
 	return (
@@ -97,24 +146,36 @@ export default function Home() {
 					sidebarOpen ? "ml-64" : "ml-0"
 				}`}
 			>
-				<motion.button
-					onClick={() => setDarkMode(!darkMode)}
-					className={`fixed top-4 right-4 p-3 rounded-full transition-colors duration-300 shadow-md
-            ${
+				<div className="fixed top-4 right-4 z-20 flex items-center gap-2">
+					<Link
+						href="/ledger"
+						className={`px-3 py-2 rounded-lg flex items-center text-md font-semibold shadow ${
 							darkMode
-								? "bg-gradient-to-r from-yellow-400 to-amber-500 text-black"
-								: "bg-gradient-to-r from-gray-800 to-gray-900 text-yellow-300"
+								? "bg-gray-800 text-yellow-400 border border-yellow-700/40 hover:bg-gray-700"
+								: "bg-white text-amber-700 border border-amber-300 hover:bg-amber-50"
 						}`}
-					whileHover={{ scale: 1.1 }}
-					whileTap={{ scale: 0.9 }}
-				>
-					{darkMode ? "☀️" : "🌙"}
-				</motion.button>
+					>
+						<ReceiptText className="inline-block mr-1" size={16} />
+						Purchase History
+					</Link>
+					<Link
+						href="/sips"
+						className={`px-3 py-2 rounded-lg flex items-center text-md font-semibold shadow ${
+							darkMode
+								? "bg-gray-800 text-yellow-400 border border-yellow-700/40 hover:bg-gray-700"
+								: "bg-white text-amber-700 border border-amber-300 hover:bg-amber-50"
+						}`}
+					>
+						<Calendar className="inline-block mr-1" size={16} />
+						SIPs
+					</Link>
+				</div>
+
 				<motion.h1
 					initial={{ opacity: 0, y: -50 }}
 					animate={{ opacity: 1, y: 0 }}
 					transition={{ duration: 0.6 }}
-					className={`text-4xl font-extrabold mb-4 p-2 text-transparent bg-clip-text 
+					className={`text-4xl font-extrabold mb-2 p-2 text-transparent bg-clip-text
             ${
 							darkMode
 								? "bg-gradient-to-r from-yellow-400 via-amber-500 to-yellow-600"
@@ -127,15 +188,35 @@ export default function Home() {
 					initial={{ opacity: 0, y: -20 }}
 					animate={{ opacity: 1, y: 0 }}
 					transition={{ duration: 0.6, delay: 0.2 }}
-					className={`text-sm mb-6 text-center max-w-2xl leading-relaxed
+					className={`text-sm mb-2 text-center max-w-2xl leading-relaxed
             ${darkMode ? "text-gray-300" : "text-gray-700"}`}
 				>
-					Your trusted AI companion for everything gold — from buying insights
-					to market updates, delivered with brilliance ✨
+					Ask, quote, buy, or start a SIP regarding Gold — all in one chat.
 				</motion.p>
+
+				<div
+					className={`text-xs mb-4 ${
+						darkMode ? "text-gray-400" : "text-gray-500"
+					}`}
+				>
+					{bootstrapError ? (
+						<span className="text-red-400">
+							Backend unreachable: {bootstrapError}
+						</span>
+					) : userName ? (
+						<span>
+							Session: <span className="font-semibold">{userName}</span> (#
+							{userId})
+						</span>
+					) : (
+						<span>Setting up your session…</span>
+					)}
+				</div>
+
 				<ChatInterface
 					darkMode={darkMode}
-					addMessageToConversation={addMessageToConversation}
+					userId={userId}
+					appendMessage={appendMessage}
 					currentConversation={
 						conversations.find((conv) => conv.id === currentConversationId) ||
 						null

@@ -1,89 +1,135 @@
-import axios from "axios";
-import { ArrowBigUp } from "lucide-react";
+"use client";
+
+import { ArrowBigUp, Check, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { ApiError, type ChatKind, type ChatResponse, chat } from "../lib/api";
 import MessageBubble from "./MessageBubble";
 
-interface Message {
+export interface UiMessage {
 	role: "user" | "assistant";
 	content: string;
+	kind?: ChatKind;
+	data?: Record<string, unknown>;
+	intent?: string;
+	usedFallback?: boolean;
 }
 
 interface Conversation {
 	id: string;
 	title: string;
-	messages: Message[];
+	messages: UiMessage[];
 }
 
 interface ChatInterfaceProps {
 	darkMode: boolean;
-	addMessageToConversation: (message: Message) => void;
+	userId: number | null;
+	appendMessage: (convId: string | null, message: UiMessage) => string;
 	currentConversation: Conversation | null;
 }
 
+const PENDING_KINDS: ChatKind[] = [
+	"purchase_pending",
+	"sip_pending",
+	"sip_manage_pending",
+];
+
 export default function ChatInterface({
 	darkMode,
-	addMessageToConversation,
+	userId,
+	appendMessage,
 	currentConversation,
 }: ChatInterfaceProps) {
 	const [input, setInput] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
-	const messagesEndRef = useRef<HTMLDivElement>(null);
+	const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-	const scrollToBottom = () => {
-		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	};
+	const messageCount = currentConversation?.messages.length ?? 0;
+	useEffect(() => {
+		const el = messagesContainerRef.current;
+		if (!el) return;
+		el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+	}, [messageCount, isLoading, currentConversation?.id]);
 
-	useEffect(scrollToBottom, []);
+	const lastMessage =
+		currentConversation?.messages[currentConversation.messages.length - 1];
+	const showConfirmBar =
+		lastMessage?.role === "assistant" &&
+		lastMessage.kind !== undefined &&
+		PENDING_KINDS.includes(lastMessage.kind);
 
-	const handleSubmit = async (e: React.FormEvent) => {
-		e.preventDefault();
-		if (!input.trim()) return;
+	const sendMessage = async (text: string) => {
+		if (!text.trim() || !userId) return;
 
-		const userMessage: Message = { role: "user", content: input };
-		addMessageToConversation(userMessage);
+		const convId = appendMessage(currentConversation?.id ?? null, {
+			role: "user",
+			content: text,
+		});
 		setInput("");
 		setIsLoading(true);
 
 		try {
-			const response = await axios.post(
-				`${process.env.NEXT_PUBLIC_API_URL}/chat`,
-				{
-					userInput: input,
-				},
-			);
-
-			const assistantMessage: Message = {
+			const res: ChatResponse = await chat(userId, text);
+			appendMessage(convId, {
 				role: "assistant",
-				content: response.data.response,
-			};
-			addMessageToConversation(assistantMessage);
-		} catch (error) {
-			console.error("Error:", error);
-			addMessageToConversation({
-				role: "assistant",
-				content: "⚠️ Sorry, I encountered an error. Please try again.",
+				content: res.reply,
+				kind: res.kind,
+				data: res.data,
+				intent: res.intent,
+				usedFallback: res.used_llm_fallback,
 			});
+		} catch (error) {
+			const message =
+				error instanceof ApiError
+					? `⚠️ ${error.message} (HTTP ${error.status})`
+					: "⚠️ Sorry, I encountered an error. Please try again.";
+			appendMessage(convId, { role: "assistant", content: message });
+			console.error("chat error", error);
 		} finally {
 			setIsLoading(false);
 		}
 	};
 
+	const handleSubmit = (e: React.FormEvent) => {
+		e.preventDefault();
+		sendMessage(input);
+	};
+
 	return (
 		<div
-			className={`relative w-full max-w-4xl h-[600px] flex flex-col rounded-xl overflow-hidden shadow-[0_0_30px_rgba(255,215,0,0.15)] border 
+			className={`relative w-full max-w-4xl h-[750px] flex flex-col rounded-xl overflow-hidden shadow-[0_0_30px_rgba(255,215,0,0.15)] border
         ${
 					darkMode
 						? "bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 border-yellow-700/40"
 						: "bg-gradient-to-br from-yellow-50 via-white to-yellow-100 border-amber-200"
 				}`}
 		>
-			<div className="flex-1 overflow-y-auto p-6 space-y-4">
+			<div
+				ref={messagesContainerRef}
+				className="flex-1 overflow-y-auto p-6 space-y-4"
+			>
+				{currentConversation?.messages.length ? null : (
+					<div
+						className={`text-center text-sm ${
+							darkMode ? "text-gray-400" : "text-gray-500"
+						}`}
+					>
+						<p>
+							Try:{" "}
+							<span className="italic">
+								&quot;How much gold can I buy for 500 rupees?&quot;
+							</span>
+						</p>
+						<p>
+							or{" "}
+							<span className="italic">
+								&quot;Start a SIP of Rs 500 every month from the 31st&quot;
+							</span>
+						</p>
+					</div>
+				)}
 				{currentConversation?.messages.map((message, idx) => (
 					<MessageBubble
-						key={`${currentConversation?.id}-${idx}-${message.role}-${message.content.slice(
-							0,
-							20,
-						)}`}
+						key={`${currentConversation.id}-${idx}`}
 						message={message}
 						darkMode={darkMode}
 					/>
@@ -99,8 +145,38 @@ export default function ChatInterface({
 						<div className="animate-bounce mx-1 animation-delay-400">•</div>
 					</div>
 				)}
-				<div ref={messagesEndRef} />
 			</div>
+
+			{showConfirmBar && (
+				<div
+					className={`px-4 py-3 border-t flex items-center justify-between gap-3 text-sm
+            ${
+							darkMode
+								? "bg-yellow-900/30 border-yellow-700/40 text-yellow-100"
+								: "bg-amber-100 border-amber-300 text-amber-900"
+						}`}
+				>
+					<span>Awaiting your confirmation.</span>
+					<div className="flex gap-2">
+						<button
+							type="button"
+							disabled={isLoading}
+							onClick={() => sendMessage("yes")}
+							className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white font-semibold shadow disabled:opacity-50"
+						>
+							<Check size={16} /> Confirm
+						</button>
+						<button
+							type="button"
+							disabled={isLoading}
+							onClick={() => sendMessage("no")}
+							className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-gray-700 hover:bg-gray-800 text-white font-semibold shadow disabled:opacity-50"
+						>
+							<X size={16} /> Cancel
+						</button>
+					</div>
+				</div>
+			)}
 
 			<form
 				onSubmit={handleSubmit}
@@ -113,8 +189,13 @@ export default function ChatInterface({
 						type="text"
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
-						placeholder="Ask SwarnaMitra anything about gold..."
-						className={`flex-1 p-3 rounded-lg outline-none shadow-inner transition 
+						placeholder={
+							userId
+								? "Ask SwarnaMitra anything about gold..."
+								: "Setting up your session..."
+						}
+						disabled={!userId || isLoading}
+						className={`flex-1 p-3 rounded-lg outline-none shadow-inner transition disabled:opacity-60
               ${
 								darkMode
 									? "bg-gray-800 text-white placeholder-gray-400 focus:ring-2 focus:ring-yellow-500"
@@ -123,8 +204,8 @@ export default function ChatInterface({
 					/>
 					<button
 						type="submit"
-						disabled={isLoading}
-						className={`px-5 py-3 rounded-lg font-bold flex items-center justify-center shadow-lg transition transform hover:scale-105
+						disabled={isLoading || !userId}
+						className={`px-5 py-3 rounded-lg font-bold flex items-center justify-center shadow-lg transition transform hover:scale-105 disabled:opacity-50 disabled:hover:scale-100
               ${
 								darkMode
 									? "bg-gradient-to-r from-yellow-500 to-amber-600 text-black hover:from-yellow-600 hover:to-amber-700"

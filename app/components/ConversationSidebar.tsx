@@ -2,16 +2,12 @@
 import { motion } from "framer-motion";
 import { MessageSquare, Plus } from "lucide-react";
 import { useEffect, useRef } from "react";
-
-interface Message {
-	role: "user" | "assistant";
-	content: string;
-}
+import type { UiMessage } from "./ChatInterface";
 
 interface Conversation {
 	id: string;
 	title: string;
-	messages: Message[];
+	messages: UiMessage[];
 }
 
 interface ConversationSidebarProps {
@@ -45,7 +41,7 @@ export default function ConversationSidebar({
 			transition={{ duration: 0.3 }}
 			className={`fixed left-0 top-0 bottom-0 w-64 ${
 				darkMode ? "bg-gray-800" : "bg-white"
-			} shadow-lg z-10 flex flex-col`}
+			} shadow-lg z-10 flex flex-col overflow-hidden`}
 		>
 			<div className="flex-shrink-0">
 				<div className="flex items-center p-4">
@@ -79,7 +75,7 @@ export default function ConversationSidebar({
 						<button
 							key={conversation.id}
 							type="button"
-							className={`p-2 rounded-lg cursor-pointer ${
+							className={`w-full text-left p-2 rounded-lg cursor-pointer overflow-hidden ${
 								darkMode
 									? conversation.id === currentConversationId
 										? "bg-gray-700 text-white"
@@ -90,11 +86,16 @@ export default function ConversationSidebar({
 							}`}
 							onClick={() => setCurrentConversationId(conversation.id)}
 						>
-							<div className="flex items-center">
-								<MessageSquare size={16} className="mr-2" />
-								<span className="font-medium">{conversation.title}</span>
+							<div className="flex items-center min-w-0">
+								<MessageSquare
+									size={16}
+									className="mr-2 flex-shrink-0"
+								/>
+								<span className="font-medium truncate">
+									{conversation.title}
+								</span>
 							</div>
-							<p className="text-sm truncate mt-1">
+							<p className="text-sm mt-1 break-words line-clamp-3 whitespace-normal">
 								{
 									conversation.messages[conversation.messages.length - 1]
 										?.content
