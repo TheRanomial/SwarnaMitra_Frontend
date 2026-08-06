@@ -20,7 +20,6 @@ interface StoredUser {
 export default function SipsPage() {
 	const [sips, setSips] = useState<SIP[]>([]);
 	const [error, setError] = useState<string | null>(null);
-	const [loading, setLoading] = useState(false);
 	const [runResult, setRunResult] = useState<string | null>(null);
 	const [user, setUser] = useState<StoredUser | null>(null);
 	const [userLoaded, setUserLoaded] = useState(false);
@@ -32,15 +31,12 @@ export default function SipsPage() {
 
 	const refresh = useCallback(async () => {
 		if (!user) return;
-		setLoading(true);
 		setError(null);
 		try {
 			const data = await getUserSips(user.id);
 			setSips(data.sips);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to load SIPs");
-		} finally {
-			setLoading(false);
 		}
 	}, [user]);
 

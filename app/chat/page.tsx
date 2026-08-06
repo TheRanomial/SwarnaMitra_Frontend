@@ -21,7 +21,7 @@ interface Conversation {
 }
 
 export default function ChatPage() {
-	const [darkMode, setDarkMode] = useState(true);
+	const darkMode = true;
 	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const [conversations, setConversations] = useState<Conversation[]>([]);
 	const [currentConversationId, setCurrentConversationId] = useState<
